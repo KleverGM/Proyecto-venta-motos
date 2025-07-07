@@ -26,4 +26,7 @@ export class Customer {
 
   @Column({ select: false })
   password: string;
+
+  @Column({ default: 'customer' })
+  role: 'admin' | 'customer';
 }
