@@ -12,24 +12,46 @@ import {
   UseInterceptors,
   UploadedFile,
   InternalServerErrorException,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
-import { CreateCustomerDto } from './dto/create-customer.dto'; // Cambia a CreateCustomerDto
-import { UpdateCustomerDto } from './dto/update-customer.dto'; // Cambia a UpdateCustomerDto
-import { SuccessResponseDto } from 'src/common/dto/response.dto';
+import { CreateCustomerDto } from './dto/create-customer.dto';
+import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { SuccessResponseDto } from '../common/dto/response.dto';
 import { Pagination } from 'nestjs-typeorm-paginate';
-import { Customer } from './customer.entity'; // Asegúrate de que el nombre del archivo sea correcto
+import { Customer } from './customer.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
+import { AuthGuard } from '@nestjs/passport';
+import { Request } from 'express';
 
-@Controller('customers') // Cambia la ruta a 'customers'
-export class CustomersController { // Cambia el nombre de la clase a CustomersController
-  constructor(private readonly customersService: CustomersService) {} // Cambia a CustomersService
+// Definir interfaz extendida para Request
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    role: string;
+  };
+}
+
+@Controller('customers')
+@UseGuards(AuthGuard()) // Protege todas las rutas con autenticación
+export class CustomersController {
+  constructor(private readonly customersService: CustomersService) {}
 
   @Post()
-  async create(@Body() dto: CreateCustomerDto) { // Cambia a CreateCustomerDto
-    const customer = await this.customersService.create(dto); // Cambia a customersService
-    return new SuccessResponseDto('Customer created successfully', customer); // Cambia a 'Customer'
+  async create(
+    @Body() dto: CreateCustomerDto,
+    @Req() req: AuthenticatedRequest // Usar la interfaz extendida
+  ) {
+    const userId = req.user.id; // Acceso seguro a user.id
+    const customer = await this.customersService.create(dto, userId);
+    
+    if (!customer) {
+      throw new InternalServerErrorException('Could not create customer profile');
+    }
+    
+    return new SuccessResponseDto('Customer profile created successfully', customer);
   }
 
   @Get()
@@ -37,41 +59,56 @@ export class CustomersController { // Cambia el nombre de la clase a CustomersCo
     @Query('page') page = 1,
     @Query('limit') limit = 10,
     @Query('isActive') isActive?: string,
-  ): Promise<SuccessResponseDto<Pagination<Customer>>> { // Cambia a Customer
+  ): Promise<SuccessResponseDto<Pagination<Customer>>> {
     if (isActive !== undefined && isActive !== 'true' && isActive !== 'false') {
       throw new BadRequestException(
         'Invalid value for "isActive". Use "true" or "false".',
       );
     }
-    const result = await this.customersService.findAll( // Cambia a customersService
+    
+    const result = await this.customersService.findAll(
       { page, limit },
-      isActive === 'true',
+      isActive === 'true' ? true : isActive === 'false' ? false : undefined
     );
-    if (!result)
-      throw new InternalServerErrorException('Could not retrieve customers'); // Cambia a 'customers'
+    
+    if (!result) {
+      throw new InternalServerErrorException('Could not retrieve customers');
+    }
 
-    return new SuccessResponseDto('Customers retrieved successfully', result); // Cambia a 'Customers'
+    return new SuccessResponseDto('Customers retrieved successfully', result);
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    const customer = await this.customersService.findOne(id); // Cambia a customersService
-    if (!customer) throw new NotFoundException('Customer not found'); // Cambia a 'Customer'
-    return new SuccessResponseDto('Customer retrieved successfully', customer); // Cambia a 'Customer'
+    const customer = await this.customersService.findOne(id);
+    
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    
+    return new SuccessResponseDto('Customer retrieved successfully', customer);
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateCustomerDto) { // Cambia a UpdateCustomerDto
-    const customer = await this.customersService.update(id, dto); // Cambia a customersService
-    if (!customer) throw new NotFoundException('Customer not found'); // Cambia a 'Customer'
-    return new SuccessResponseDto('Customer updated successfully', customer); // Cambia a 'Customer'
+  async update(@Param('id') id: string, @Body() dto: UpdateCustomerDto) {
+    const customer = await this.customersService.update(id, dto);
+    
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    
+    return new SuccessResponseDto('Customer updated successfully', customer);
   }
 
   @Delete(':id')
   async remove(@Param('id') id: string) {
-    const customer = await this.customersService.remove(id); // Cambia a customersService
-    if (!customer) throw new NotFoundException('Customer not found'); // Cambia a 'Customer'
-    return new SuccessResponseDto('Customer deleted successfully', customer); // Cambia a 'Customer'
+    const customer = await this.customersService.remove(id);
+    
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    
+    return new SuccessResponseDto('Customer profile deleted successfully', customer);
   }
 
   @Put(':id/profile')
@@ -97,9 +134,29 @@ export class CustomersController { // Cambia el nombre de la clase a CustomersCo
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!file) throw new BadRequestException('Profile image is required');
-    const customer = await this.customersService.updateProfile(id, file.filename); // Cambia a customersService
-    if (!customer) throw new NotFoundException('Customer not found'); // Cambia a 'Customer'
-    return new SuccessResponseDto('Profile image updated', customer); // Cambia a 'Customer'
+    if (!file) {
+      throw new BadRequestException('Profile image is required');
+    }
+    
+    const customer = await this.customersService.updateProfile(id, file.filename);
+    
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    
+    return new SuccessResponseDto('Profile image updated', customer);
+  }
+
+  // Endpoint para obtener el perfil del usuario autenticado
+  @Get('my-profile')
+  async getMyProfile(@Req() req: AuthenticatedRequest) {
+    const userId = req.user.id; // Acceso seguro a user.id
+    const customer = await this.customersService.findByUserId(userId);
+    
+    if (!customer) {
+      throw new NotFoundException('Customer profile not found');
+    }
+    
+    return new SuccessResponseDto('Profile retrieved successfully', customer);
   }
 }

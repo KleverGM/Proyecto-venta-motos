@@ -1,32 +1,28 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from 'typeorm';
+import { User } from '../auth/user.entity'; // Importar entidad User
 
 @Entity('customers')
 export class Customer {
-  
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
-  customer_name: string; // Nombre del cliente
-
-  @Column({ type: 'varchar', nullable: true })
-  email: string | null;
+  @Column()
+  customer_name: string;
 
   @Column()
-  phone_number: string; // Número de teléfono
+  phone_number: string;
 
   @Column({ nullable: true })
-  address: string; // Dirección
-
-  @Column({ default: true })
-  isActive: boolean;
+  address?: string; // Opcional
 
   @Column({ nullable: true })
-  profile: string;
+  profile?: string; // Opcional
 
-  @Column({ select: false })
-  password: string;
-
-  @Column({ default: 'customer' })
-  role: 'admin' | 'customer';
+  // Relación con User - Corregida para permitir valores null
+  @OneToOne(() => User, { 
+    nullable: true, // Permitir que sea null
+    onDelete: 'SET NULL' // Comportamiento al eliminar
+  })
+  @JoinColumn()
+  user: User | null; // Aceptar null
 }

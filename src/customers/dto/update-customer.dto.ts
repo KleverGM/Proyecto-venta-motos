@@ -1,14 +1,10 @@
-import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateCustomerDto {
   @IsOptional()
   @IsString()
   @MinLength(3)
   customer_name?: string;
-
-  @IsOptional()
-  @IsEmail()
-  email?: string;
 
   @IsOptional()
   @IsString()
@@ -21,10 +17,4 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsString()
   profile?: string;
-
-  @IsOptional()
-  @IsIn(['admin', 'customer'])
-  role?: 'admin' | 'customer';
 }
-
-

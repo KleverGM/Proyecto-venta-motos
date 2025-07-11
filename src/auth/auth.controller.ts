@@ -2,35 +2,65 @@ import {
   Controller,
   Post,
   Body,
-  BadRequestException,
   UnauthorizedException,
+  ConflictException,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { CreateCustomerDto } from '../customers/dto/create-customer.dto';
-import { SuccessResponseDto } from 'src/common/dto/response.dto';
+import { RegisterUserDto } from './dto/register-user.dto';
+import { SuccessResponseDto } from '../common/dto/response.dto';
+import { AuthGuard } from '@nestjs/passport';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('Authentication') // Swagger Tag
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
-    const token = await this.authService.login(loginDto);
-    if (!token) {
+    try {
+      const result = await this.authService.login(loginDto);
+      return new SuccessResponseDto('Login successful', result);
+    } catch (error) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    return new SuccessResponseDto('Login successful', { access_token: token });
   }
 
   @Post('register')
-  async register(@Body() createCustomerDto: CreateCustomerDto) {
-    const token = await this.authService.register(createCustomerDto);
-    if (!token) {
-      throw new BadRequestException('Failed to register user');
+  async register(@Body() registerDto: RegisterUserDto) {
+    try {
+      const result = await this.authService.register(registerDto);
+      return new SuccessResponseDto('Registration successful', result);
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        throw new ConflictException(error.message);
+      }
+      throw new UnauthorizedException('Registration failed');
     }
-    return new SuccessResponseDto('Registration successful', {
-      access_token: token,
-    });
+  }
+
+  // Nuevo endpoint para renovación de token
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('refresh-token')
+  async refreshToken(@Req() req: any) {
+    try {
+      const user = req.user;
+      const payload = { 
+        email: user.email, 
+        sub: user.id,
+        role: user.role
+      };
+      
+      const newToken = this.authService.generateToken(payload);
+      return new SuccessResponseDto('Token refreshed', {
+        access_token: newToken
+      });
+    } catch (error) {
+      throw new UnauthorizedException('Token refresh failed');
+    }
   }
 }

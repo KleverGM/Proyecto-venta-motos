@@ -1,28 +1,20 @@
-import { IsEmail, IsNotEmpty, IsOptional, MinLength, IsIn } from 'class-validator';
+import { IsNotEmpty, IsOptional, MinLength, IsString } from 'class-validator';
 
 export class CreateCustomerDto {
   @IsNotEmpty()
   @MinLength(3)
+  @IsString()
   customer_name: string;
 
-  @IsEmail()
-  @IsOptional()
-  email?: string;
-
   @IsNotEmpty()
+  @IsString()
   phone_number: string;
 
   @IsOptional()
+  @IsString()
   address?: string;
 
   @IsOptional()
+  @IsString()
   profile?: string;
-
-  @IsNotEmpty()
-  @MinLength(6)
-  password: string;
-
-  @IsOptional()
-  @IsIn(['admin', 'customer'])
-  role?: 'admin' | 'customer';
 }

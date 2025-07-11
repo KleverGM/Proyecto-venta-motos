@@ -8,7 +8,7 @@ export class Motorcycle {
   @Column()
   name: string;
 
-  @Column()
+  @Column() 
   brand: string;
 
   @Column()
@@ -22,4 +22,8 @@ export class Motorcycle {
 
   @Column({ nullable: true })
   description?: string;
+
+  // SOLUCIÓN: Especificar explícitamente el tipo 'text' para PostgreSQL
+  @Column({ type: 'text', nullable: true }) 
+  imageUrl: string | null;
 }

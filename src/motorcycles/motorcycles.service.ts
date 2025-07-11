@@ -1,75 +1,60 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  paginate,
-  IPaginationOptions,
-  Pagination,
-} from 'nestjs-typeorm-paginate';
 import { Motorcycle } from './motorcycle.entity';
-import { CreateMotorcycleDto } from './dto/create-motorcycle.dto';
-import { UpdateMotorcycleDto } from './dto/update-motorcycle.dto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class MotorcyclesService {
   constructor(
     @InjectRepository(Motorcycle)
-    private readonly motorcycleRepo: Repository<Motorcycle>,
+    private motorcycleRepository: Repository<Motorcycle>,
   ) {}
 
-  async create(dto: CreateMotorcycleDto): Promise<Motorcycle | null> {
-    try {
-      const motorcycle = this.motorcycleRepo.create(dto);
-      return await this.motorcycleRepo.save(motorcycle);
-    } catch (err) {
-      console.error('Error creating motorcycle:', err);
-      return null;
+  // Actualizar con soporte para UUID y null
+  async update(id: string, updateData: Partial<Motorcycle>): Promise<Motorcycle> {
+    const existing = await this.motorcycleRepository.findOne({ 
+      where: { id } 
+    });
+    
+    if (!existing) {
+      throw new NotFoundException(`Motorcycle with id ${id} not found`);
     }
+
+    // Eliminar imagen anterior solo si se está actualizando y existe
+    if (updateData.imageUrl !== undefined && existing.imageUrl) {
+      this.deleteImageFile(existing.imageUrl);
+    }
+
+    await this.motorcycleRepository.update(id, updateData);
+    
+    const updated = await this.motorcycleRepository.findOne({ 
+      where: { id } 
+    });
+    
+    if (!updated) {
+      throw new NotFoundException(`Motorcycle with id ${id} not found after update`);
+    }
+    return updated;
   }
 
-  async findAll(
-    options: IPaginationOptions,
-  ): Promise<Pagination<Motorcycle> | null> {
+  // Manejo seguro de eliminación de imágenes
+  private deleteImageFile(imageUrl: string | null) {
+    if (!imageUrl) return;
+
     try {
-      const query = this.motorcycleRepo.createQueryBuilder('motorcycle');
-      return await paginate<Motorcycle>(query, options);
-    } catch (err) {
-      console.error('Error retrieving motorcycles:', err);
-      return null;
-    }
-  }
-
-  async findOne(id: string): Promise<Motorcycle | null> {
-    try {
-      return await this.motorcycleRepo.findOne({ where: { id } });
-    } catch (err) {
-      console.error('Error finding motorcycle:', err);
-      return null;
-    }
-  }
-
-  async update(id: string, dto: UpdateMotorcycleDto): Promise<Motorcycle | null> {
-    try {
-      const motorcycle = await this.findOne(id);
-      if (!motorcycle) return null;
-
-      Object.assign(motorcycle, dto);
-      return await this.motorcycleRepo.save(motorcycle);
-    } catch (err) {
-      console.error('Error updating motorcycle:', err);
-      return null;
-    }
-  }
-
-  async remove(id: string): Promise<Motorcycle | null> {
-    try {
-      const motorcycle = await this.findOne(id);
-      if (!motorcycle) return null;
-
-      return await this.motorcycleRepo.remove(motorcycle);
-    } catch (err) {
-      console.error('Error deleting motorcycle:', err);
-      return null;
+      const filePath = path.join(
+        __dirname, 
+        '..', '..', 'public', 
+        imageUrl
+      );
+      
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (error) {
+      console.error('Error eliminando archivo de imagen', error);
     }
   }
 }
