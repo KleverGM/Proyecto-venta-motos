@@ -1,32 +1,27 @@
-import { Entity, Column, PrimaryGeneratedColumn, OneToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from 'typeorm';
 import { Customer } from '../customers/customer.entity';
 
-@Entity('users')
+@Entity()
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true, length: 255 })
+  @Column({ unique: true })
   email: string;
 
-  @Column({ select: false, length: 255 })
+  @Column()
+  name: string;
+
+  @Column()
   password: string;
 
-  @Column({ 
-    type: 'enum', 
-    enum: ['admin', 'customer'], 
-    default: 'customer' 
-  })
-  role: string;
-
-  @Column({ name: 'is_active', default: true })
+  @Column({ default: true })
   isActive: boolean;
 
-  @OneToOne(() => Customer, customer => customer.user, {
-    cascade: true, // Elimina customer al eliminar user
-    nullable: true, // Permite usuarios sin perfil de cliente
-    onDelete: 'SET NULL' // Comportamiento al eliminar
-  })
+  @Column('simple-array', { default: ['user'] })
+  roles: string[];
+
+  @OneToOne(() => Customer, customer => customer.user, { cascade: true })
   @JoinColumn()
-  customer: Customer | null; // Permitir valores null
+  customer: Customer;
 }

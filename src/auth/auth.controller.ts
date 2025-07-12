@@ -55,7 +55,7 @@ export class AuthController {
         role: user.role
       };
       
-      const newToken = this.authService.generateToken(payload);
+      const newToken = this.authService.createJwtPayload(user);
       return new SuccessResponseDto('Token refreshed', {
         access_token: newToken
       });

@@ -1,129 +1,120 @@
-import { 
-  Injectable, 
-  UnauthorizedException, 
-  ConflictException,
-  InternalServerErrorException
-} from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { BadRequestException, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { User } from './user.entity';
+import * as bcrypt from 'bcrypt';
+import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
-import { RegisterUserDto } from './dto/register-user.dto';
-import { CustomersService } from '../customers/customers.service';
 import { CreateCustomerDto } from '../customers/dto/create-customer.dto';
+import { CustomersService } from '../customers/customers.service';
+import { RegisterUserDto } from './dto/register-user.dto'; // Importa el DTO de registro si existe
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-    private readonly jwtService: JwtService,
-    private readonly customersService: CustomersService,
+    private userRepository: Repository<User>,
+    private jwtService: JwtService,
+    private customersService: CustomersService,
   ) {}
 
-  async validateUser(email: string, password: string): Promise<User | null> {
-    try {
-      const user = await this.userRepository.findOne({
-        where: { email },
-        select: ['id', 'email', 'password', 'role']
-      });
-      
-      if (!user) return null;
-      
-      const isValid = await bcrypt.compare(password, user.password);
-      return isValid ? user : null;
-    } catch (err) {
-      throw new InternalServerErrorException('Error validando usuario');
-    }
+  async validateUser(email: string, password: string): Promise<any> {
+    const user = await this.userRepository.findOne({
+      where: { email },
+      select: ['id', 'email', 'password', 'roles', 'name'],
+    });
+    
+    if (!user) return null;
+    
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) return null;
+
+    const { password: _, ...result } = user;
+    return result;
   }
 
-  async login(loginDto: LoginDto): Promise<{ access_token: string }> {
-    try {
-      const user = await this.validateUser(loginDto.email, loginDto.password);
-      
-      if (!user) {
-        throw new UnauthorizedException('Credenciales inválidas');
-      }
-
-      const payload = { 
-        email: user.email, 
-        sub: user.id,
-        role: user.role
-      };
-      
-      return {
-        access_token: this.jwtService.sign(payload),
-      };
-    } catch (err) {
-      if (err instanceof UnauthorizedException) {
-        throw err;
-      }
-      throw new InternalServerErrorException('Error en el proceso de login');
+  async login(loginDto: LoginDto) {
+    const user = await this.validateUser(loginDto.email, loginDto.password);
+    if (!user) {
+      throw new UnauthorizedException('Credenciales inválidas');
     }
+    
+    const payload = this.createJwtPayload(user);
+    
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        roles: user.roles,
+      }
+    };
   }
 
-  async register(registerDto: RegisterUserDto): Promise<{ access_token: string }> {
-    try {
-      // Verificar si el email ya existe
-      const existingUser = await this.userRepository.findOne({ 
-        where: { email: registerDto.email } 
-      });
-      
-      if (existingUser) {
-        throw new ConflictException('El email ya está registrado');
-      }
-
-      // Hashear la contraseña
-      const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-      
-      // Crear nuevo usuario
-      const newUser = this.userRepository.create({
-        email: registerDto.email,
-        password: hashedPassword,
-        role: 'customer'
-      });
-      
-      const savedUser = await this.userRepository.save(newUser);
-      
-      // Crear perfil de cliente asociado
-      const createCustomerDto: CreateCustomerDto = {
-        customer_name: registerDto.customer_name,
-        phone_number: registerDto.phone_number,
-        address: registerDto.address
-      };
-      
-      await this.customersService.create(createCustomerDto, savedUser.id);
-      
-      // Generar token de acceso
-      const payload = { 
-        email: savedUser.email, 
-        sub: savedUser.id,
-        role: savedUser.role
-      };
-      
-      return {
-        access_token: this.jwtService.sign(payload),
-      };
-    } catch (err) {
-      if (err instanceof ConflictException) {
-        throw err;
-      }
-      
-      // Eliminar usuario si se creó pero falló la creación del cliente
-      if (registerDto.email) {
-        const user = await this.userRepository.findOne({ where: { email: registerDto.email } });
-        if (user) {
-          await this.userRepository.delete(user.id);
-        }
-      }
-      
-      throw new InternalServerErrorException('Error en el registro de usuario');
+  async register(registerDto: RegisterUserDto | any) {
+    const { email, password, name, phone_number, address, profileImage } = registerDto;
+    const existingUser = await this.userRepository.findOne({ where: { email } });
+    if (existingUser) {
+      throw new BadRequestException('El correo electrónico ya está registrado');
     }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = this.userRepository.create({
+      email,
+      password: hashedPassword,
+      name,
+      roles: ['user'], // Rol predeterminado
+    });
+
+    const savedUser = await this.userRepository.save(newUser);
+
+    // Crear cliente asociado con datos completos
+    const createCustomerDto: CreateCustomerDto = {
+      name,
+      email,
+      phone_number,
+      address,
+      profileImage
+    };
+    
+    await this.customersService.create(createCustomerDto, savedUser.id);
+
+    const payload = this.createJwtPayload(savedUser);
+    
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: {
+        id: savedUser.id,
+        email: savedUser.email,
+        name: savedUser.name,
+        roles: savedUser.roles,
+      },
+    };
   }
 
-  generateToken(payload: any): string {
-    return this.jwtService.sign(payload);
+  async deleteUser(email: string) {
+    const user = await this.userRepository.findOne({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    
+    // Primero eliminar el cliente asociado
+    const customer = await this.customersService.getCustomerByUserId(user.id);
+    if (customer) {
+      await this.customersService.remove(customer.id);
+    }
+    
+    // Luego eliminar el usuario
+    await this.userRepository.delete(user.id);
+    return { message: 'Usuario eliminado correctamente' };
+  }
+
+  createJwtPayload(user: User) {
+    return {
+      email: user.email,
+      sub: user.id,
+      roles: user.roles,
+    };
   }
 }

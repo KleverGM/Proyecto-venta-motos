@@ -1,177 +1,117 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  paginate,
-  IPaginationOptions,
-  Pagination,
-} from 'nestjs-typeorm-paginate';
 import { Customer } from './customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
-import { User } from '../auth/user.entity'; // Importar entidad User
+import { User } from '../auth/user.entity';
+import { Pagination } from 'nestjs-typeorm-paginate';
 
 @Injectable()
 export class CustomersService {
   constructor(
     @InjectRepository(Customer)
-    private readonly customerRepo: Repository<Customer>,
-    
+    private customerRepository: Repository<Customer>,
     @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
+    private userRepository: Repository<User>,
   ) {}
 
-  // Crear cliente asociado a un usuario existente
-  async create(dto: CreateCustomerDto, userId: string): Promise<Customer> {
-    try {
-      // 1. Buscar usuario existente
-      const user = await this.userRepo.findOne({ 
-        where: { id: userId },
-        relations: ['customer']
-      });
-      
-      if (!user) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
-      
-      // 2. Verificar si ya tiene perfil de cliente
-      if (user.customer) {
-        throw new InternalServerErrorException('El usuario ya tiene un perfil de cliente asociado');
-      }
-
-      // 3. Crear nuevo cliente
-      const customer = this.customerRepo.create(dto);
-      customer.user = user; // Asociar usuario
-      
-      // 4. Guardar y retornar
-      return await this.customerRepo.save(customer);
-    } catch (err) {
-      if (err instanceof NotFoundException || err instanceof InternalServerErrorException) {
-        throw err;
-      }
-      throw new InternalServerErrorException('Error creando perfil de cliente');
+  // Crear un nuevo cliente
+  async create(createCustomerDto: CreateCustomerDto, userId: string) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
     }
+
+    const customer = this.customerRepository.create({
+      ...createCustomerDto,
+      user, // Asignar la relación con el usuario
+    });
+
+    return this.customerRepository.save(customer);
+  }
+
+  // Obtener todos los clientes con paginación
+  async findAll(options?: { page?: number; limit?: number; isActive?: boolean }) {
+    const { page = 1, limit = 10, isActive } = options || {};
+    const skip = (page - 1) * limit;
+    
+    const [customers, total] = await this.customerRepository.findAndCount({
+      where: isActive !== undefined ? { isActive } : {},
+      relations: ['user'],
+      skip,
+      take: limit,
+    });
+
+    return {
+      items: customers,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      }
+    };
+  }
+
+  // Obtener un cliente por ID
+  async findOne(id: string) {
+    const customer = await this.customerRepository.findOne({ 
+      where: { id },
+      relations: ['user'] 
+    });
+    
+    if (!customer) {
+      throw new NotFoundException(`Cliente con ID ${id} no encontrado`);
+    }
+    
+    return customer;
+  }
+
+  // Actualizar un cliente
+  async update(id: string, updateCustomerDto: UpdateCustomerDto) {
+    const customer = await this.customerRepository.preload({
+      id,
+      ...updateCustomerDto
+    });
+    
+    if (!customer) {
+      throw new NotFoundException(`Cliente con ID ${id} no encontrado`);
+    }
+    
+    return this.customerRepository.save(customer);
+  }
+
+  // Eliminar un cliente
+  async remove(id: string) {
+    const customer = await this.findOne(id);
+    return this.customerRepository.remove(customer);
+  }
+
+  // Actualizar la imagen de perfil
+  async updateProfile(id: string, profileImage: string) {
+    const customer = await this.findOne(id);
+    customer.profileImage = profileImage;
+    return this.customerRepository.save(customer);
   }
 
   // Buscar cliente por ID de usuario
-  async findByUserId(userId: string): Promise<Customer | null> {
-    try {
-      return await this.customerRepo.findOne({ 
-        where: { user: { id: userId } },
-        relations: ['user']
-      });
-    } catch (err) {
-      throw new InternalServerErrorException('Error buscando perfil de cliente');
+  async findByUserId(userId: string) {
+    const customer = await this.customerRepository.findOne({ 
+      where: { user: { id: userId } },
+      relations: ['user'],
+    });
+    
+    if (!customer) {
+      throw new NotFoundException(`Cliente para usuario ID ${userId} no encontrado`);
     }
+    
+    return customer;
   }
 
-  // Obtener todos los clientes (con paginación)
-  async findAll(
-    options: IPaginationOptions,
-    isActive?: boolean,
-  ): Promise<Pagination<Customer>> {
-    try {
-      const query = this.customerRepo
-        .createQueryBuilder('customer')
-        .leftJoinAndSelect('customer.user', 'user');
-        
-      if (isActive !== undefined) {
-        query.andWhere('customer.isActive = :isActive', { isActive });
-      }
-      
-      return await paginate<Customer>(query, options);
-    } catch (err) {
-      throw new InternalServerErrorException('Error obteniendo clientes');
-    }
-  }
-
-  // Buscar cliente por ID
-  async findOne(id: string): Promise<Customer> {
-    try {
-      const customer = await this.customerRepo.findOne({ 
-        where: { id },
-        relations: ['user']
-      });
-      
-      if (!customer) {
-        throw new NotFoundException('Cliente no encontrado');
-      }
-      
-      return customer;
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
-      }
-      throw new InternalServerErrorException('Error buscando cliente');
-    }
-  }
-
-  // Actualizar cliente
-  async update(id: string, dto: UpdateCustomerDto): Promise<Customer> {
-    try {
-      const customer = await this.customerRepo.findOne({ 
-        where: { id },
-        relations: ['user']
-      });
-      
-      if (!customer) {
-        throw new NotFoundException('Cliente no encontrado');
-      }
-
-      // Actualizar solo campos permitidos
-      Object.assign(customer, dto);
-      return await this.customerRepo.save(customer);
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
-      }
-      throw new InternalServerErrorException('Error actualizando cliente');
-    }
-  }
-
-  // Eliminar cliente (no elimina usuario)
-  async remove(id: string): Promise<Customer> {
-    try {
-      const customer = await this.customerRepo.findOne({ 
-        where: { id },
-        relations: ['user'] 
-      });
-      
-      if (!customer) {
-        throw new NotFoundException('Cliente no encontrado');
-      }
-
-      // Desasociar usuario si existe
-      if (customer.user) {
-        customer.user = null;
-        await this.customerRepo.save(customer);
-      }
-      
-      return await this.customerRepo.remove(customer);
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
-      }
-      throw new InternalServerErrorException('Error eliminando cliente');
-    }
-  }
-
-  // Actualizar imagen de perfil
-  async updateProfile(id: string, filename: string): Promise<Customer> {
-    try {
-      const customer = await this.customerRepo.findOne({ where: { id } });
-      
-      if (!customer) {
-        throw new NotFoundException('Cliente no encontrado');
-      }
-
-      customer.profile = filename;
-      return await this.customerRepo.save(customer);
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
-      }
-      throw new InternalServerErrorException('Error actualizando imagen de perfil');
-    }
+  // Método original (alias para findByUserId)
+  async getCustomerByUserId(userId: string) {
+    return this.findByUserId(userId);
   }
 }

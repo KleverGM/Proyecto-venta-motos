@@ -1,49 +1,26 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-
-interface JwtPayload {
-  sub: string; // ID del usuario (estándar JWT)
-  email: string;
-  role: string;
-  iat?: number;
-  exp?: number;
-}
-
-interface ValidatedUser {
-  id: string;
-  email: string;
-  role: string;
-}
+import { User } from './user.entity';
+import { Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    @InjectRepository(User)
+    private userRepository: Repository<User>
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('JWT_SECRET'), // Usar ConfigService
-      issuer: 'venta-motos-api', // Validar issuer
-      audience: 'venta-motos-app', // Validar audience
+      secretOrKey: configService.get('JWT_SECRET'),
     });
   }
 
-  async validate(payload: JwtPayload): Promise<ValidatedUser> {
-    // Verificación de campos esenciales
-    if (!payload.sub || !payload.email || !payload.role) {
-      throw new UnauthorizedException('Token inválido: Faltan campos esenciales');
-    }
-
-    // Validación de roles
-    if (!['admin', 'customer'].includes(payload.role)) {
-      throw new UnauthorizedException('Rol de usuario inválido');
-    }
-
-    return {
-      id: payload.sub, // Usar sub como ID de usuario
-      email: payload.email,
-      role: payload.role
-    };
+  async validate(payload: any) {
+    return this.userRepository.findOne({ where: { id: payload.sub } });
   }
 }

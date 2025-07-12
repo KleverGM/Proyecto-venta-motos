@@ -1,14 +1,18 @@
-import { IsNotEmpty, IsOptional, MinLength, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MinLength, IsEmail } from 'class-validator';
 
 export class CreateCustomerDto {
   @IsNotEmpty()
   @MinLength(3)
   @IsString()
-  customer_name: string;
+  name: string;  // Cambiado a 'name' para coincidir con la entidad Customer
 
   @IsNotEmpty()
+  @IsEmail()
+  email: string;  // Propiedad requerida para coincidir con la entidad
+
+  @IsOptional()
   @IsString()
-  phone_number: string;
+  phone_number?: string;
 
   @IsOptional()
   @IsString()
@@ -16,5 +20,5 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
-  profile?: string;
+  profileImage?: string;  // Cambiado a 'profileImage' para coincidir con la entidad
 }

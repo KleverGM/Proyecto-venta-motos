@@ -19,7 +19,6 @@ import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { SuccessResponseDto } from '../common/dto/response.dto';
-import { Pagination } from 'nestjs-typeorm-paginate';
 import { Customer } from './customer.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -30,7 +29,7 @@ import { Request } from 'express';
 interface AuthenticatedRequest extends Request {
   user: {
     id: string;
-    role: string;
+    roles: string[];
   };
 }
 
@@ -42,9 +41,9 @@ export class CustomersController {
   @Post()
   async create(
     @Body() dto: CreateCustomerDto,
-    @Req() req: AuthenticatedRequest // Usar la interfaz extendida
+    @Req() req: AuthenticatedRequest
   ) {
-    const userId = req.user.id; // Acceso seguro a user.id
+    const userId = req.user.id;
     const customer = await this.customersService.create(dto, userId);
     
     if (!customer) {
@@ -56,20 +55,38 @@ export class CustomersController {
 
   @Get()
   async findAll(
-    @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
     @Query('isActive') isActive?: string,
-  ): Promise<SuccessResponseDto<Pagination<Customer>>> {
-    if (isActive !== undefined && isActive !== 'true' && isActive !== 'false') {
-      throw new BadRequestException(
-        'Invalid value for "isActive". Use "true" or "false".',
-      );
+  ) {
+    // Validar parámetros de paginación
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    
+    if (isNaN(pageNum)) { // CORRECCIÓN: Paréntesis agregados
+      throw new BadRequestException('Invalid page number');
+    }
+    if (isNaN(limitNum)) { // CORRECCIÓN: Paréntesis agregados
+      throw new BadRequestException('Invalid limit value');
     }
     
-    const result = await this.customersService.findAll(
-      { page, limit },
-      isActive === 'true' ? true : isActive === 'false' ? false : undefined
-    );
+    // Validar isActive
+    let isActiveBool: boolean | undefined;
+    if (isActive !== undefined) {
+      if (isActive === 'true') {
+        isActiveBool = true;
+      } else if (isActive === 'false') {
+        isActiveBool = false;
+      } else {
+        throw new BadRequestException('Invalid value for isActive (use true or false)');
+      }
+    }
+    
+    const result = await this.customersService.findAll({
+      page: pageNum,
+      limit: limitNum,
+      isActive: isActiveBool
+    });
     
     if (!result) {
       throw new InternalServerErrorException('Could not retrieve customers');
@@ -150,7 +167,7 @@ export class CustomersController {
   // Endpoint para obtener el perfil del usuario autenticado
   @Get('my-profile')
   async getMyProfile(@Req() req: AuthenticatedRequest) {
-    const userId = req.user.id; // Acceso seguro a user.id
+    const userId = req.user.id;
     const customer = await this.customersService.findByUserId(userId);
     
     if (!customer) {
